@@ -1,0 +1,15 @@
+{
+	"ImportPath": "github.com/niwho/timeschedule/common",
+	"GoVersion": "go1.10",
+	"GodepVersion": "v80",
+	"Deps": [
+		{
+			"ImportPath": "github.com/bwmarrin/snowflake",
+			"Rev": "7d434bc4d8a584a6b7998a91e28380786b02cb00"
+		},
+		{
+			"ImportPath": "github.com/ryszard/goskiplist/skiplist",
+			"Rev": "2dfbae5fcf46374f166f8969cb07e167f1be6273"
+		}
+	]
+}
