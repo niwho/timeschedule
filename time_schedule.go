@@ -154,25 +154,12 @@ func (ts *TimeoutSchedule) Start() {
 			select {
 			case jd := <-doWorks:
 				if !jd.result {
-					ts.removeCh <- struct {
-						oid    int64
-						ignore bool
-					}{jd.Job.OutID, true}
-					//re add
-					// job.OutID 这里补能被覆盖
-					//copy
 					jd.Job.Retry += 1
 					fmt.Println("*************", jd.Job.Retry, jd.Job.MaxRetry, jd.Job.Retry <= jd.Job.MaxRetry)
 					if jd.Job.Retry <= jd.Job.MaxRetry {
-						dupJob := *jd.Job
-						dupJob.JobID = JobID{
-							ID: time.Now().Add((time.Duration)(int64(jd.Job.interval)*int64(jd.Job.Retry))).UnixNano() / 1e6,
-							// 冲突项
-							SEQ: 0,
-						}
+						jd.Job.JobID.ID = time.Now().Add((time.Duration)(int64(jd.Job.interval)*int64(jd.Job.Retry))).UnixNano() / 1e6
 
-						// 为什么要拷贝一份，不言自明
-						ts.addCh <- &dupJob
+						ts.addCh <- jd.Job
 					}
 
 				} else {
@@ -180,7 +167,7 @@ func (ts *TimeoutSchedule) Start() {
 					ts.removeCh <- struct {
 						oid    int64
 						ignore bool
-					}{jd.Job.OutID, false}
+					}{jd.Job.OutID, true}
 				}
 			}
 		}
@@ -188,8 +175,10 @@ func (ts *TimeoutSchedule) Start() {
 	for {
 		select {
 		case outID := <-ts.removeCh:
-			if job, found := ts.index[outID.oid]; found {
-				if !outID.ignore {
+			if outID.ignore {
+				delete(ts.index, outID.oid)
+			} else {
+				if job, found := ts.index[outID.oid]; found {
 					if _, ok := ts.Delete(job.JobID); ok {
 					}
 					delete(ts.index, outID.oid)
