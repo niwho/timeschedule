@@ -15,11 +15,13 @@ func TestSched(t0 *testing.T) {
 		return true
 	})
 
+	t = time.Now()
 	rid := TimeoutScheduleIns.AddCheckJob(15*time.Second, func() bool {
-		fmt.Println(time.Now(), t.Add(15*time.Second), "$$$$anothor 15 done")
+		fmt.Println(time.Now(), t.Add(15*time.Second), "$$$$anothor 15 done, remove")
 		return true
 	})
 	//time.Sleep(10 * time.Second)
+	t = time.Now()
 	id2 := TimeoutScheduleIns.AddCheckJob(2*time.Second, func() bool {
 		fmt.Println(time.Now(), t.Add(2*time.Second), "$$$$anothor 5 done, false======")
 		return false
@@ -30,7 +32,7 @@ func TestSched(t0 *testing.T) {
 	for {
 		select {
 		case <-time.After(time.Second):
-			fmt.Println(time.Now().UnixNano() / 1e6)
+			//fmt.Println(time.Now().UnixNano() / 1e6)
 			k += 1
 			switch k {
 			case 10:

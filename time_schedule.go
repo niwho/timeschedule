@@ -155,15 +155,20 @@ func (ts *TimeoutSchedule) Start() {
 			case jd := <-doWorks:
 				if !jd.result {
 					jd.Job.Retry += 1
-					fmt.Println("*************", jd.Job.Retry, jd.Job.MaxRetry, jd.Job.Retry <= jd.Job.MaxRetry)
+					//fmt.Println("*************", jd.Job.Retry, jd.Job.MaxRetry, jd.Job.Retry <= jd.Job.MaxRetry)
 					if jd.Job.Retry <= jd.Job.MaxRetry {
 						jd.Job.JobID.ID = time.Now().Add((time.Duration)(int64(jd.Job.interval)*int64(jd.Job.Retry))).UnixNano() / 1e6
 
 						ts.addCh <- jd.Job
+					} else {
+						ts.removeCh <- struct {
+							oid    int64
+							ignore bool
+						}{jd.Job.OutID, true}
 					}
 
 				} else {
-					fmt.Println(time.Now(), jd.Job.OutID)
+					//fmt.Println(time.Now(), jd.Job.OutID)
 					ts.removeCh <- struct {
 						oid    int64
 						ignore bool
@@ -210,7 +215,7 @@ func (ts *TimeoutSchedule) Start() {
 		case <-clock.C:
 			// 如果没有任何job了， reset 1year
 			if ts.Len() <= 0 {
-				fmt.Println("36555555")
+				//fmt.Println("36555555")
 				if !clock.Stop() {
 					//<-clock.C
 				}
@@ -219,7 +224,7 @@ func (ts *TimeoutSchedule) Start() {
 			}
 		}
 		ts.process(clock, doWorks)
-		fmt.Println("monitor", len(ts.index), ts.Len(), ts.debug.d)
+		//fmt.Println("monitor", len(ts.index), ts.Len(), ts.debug.d)
 		//for k, v := range ts.index {
 		//	fmt.Println(k, v)
 		//}
