@@ -1,4 +1,4 @@
-package common
+package timeschedule
 
 import (
 	"fmt"
@@ -34,16 +34,42 @@ func (j JobID) LessThan(other skiplist.Ordered) bool {
 
 }
 
+type JobContext interface {
+	SetNextRunTime(time.Time)
+	GetRunCount() int
+	SetValue(string, interface{})
+	GetValue(string) (interface{}, bool)
+}
+
 type Job struct {
 	JobID
-	interval time.Duration
 
 	OutID int64
 
 	//ch chan int64
-	Retry    int
-	MaxRetry int
-	cb       func() bool
+	runCount int
+	nextTime time.Time
+	cb       func(JobContext) bool
+
+	data map[string]interface{}
+}
+
+func (j *Job) SetNextRunTime(t time.Time) {
+	j.nextTime = t
+}
+
+func (j *Job) GetRunCount() int {
+	return j.runCount
+
+}
+
+func (j *Job) SetValue(key string, val interface{}) {
+	j.data[key] = val
+}
+
+func (j *Job) GetValue(key string) (interface{}, bool) {
+	val, found := j.data[key]
+	return val, found
 }
 
 type TIMESCHED interface {
@@ -82,14 +108,36 @@ func InitTimeoutSchedule() {
 	go TimeoutScheduleIns.Start()
 }
 
-func (ts *TimeoutSchedule) AddCheckJob(d time.Duration, cb func() bool) int64 {
+func (ts *TimeoutSchedule) AddCheckJobWithTime(t time.Time, cb func(jc JobContext) bool) int64 {
+	jd := JobID{
+		ID: t.UnixNano() / 1e6,
+		// 冲突项
+		SEQ: 0,
+	}
+	outid := int64(ts.Generate())
+	job := &Job{JobID: jd,
+		cb:    cb,
+		OutID: outid,
+		data:  map[string]interface{}{},
+	}
+	ts.addCh <- job
+	// JobID maybe modify
+	// chan 是引用传递方式，所以可以这样使用
+	//jd.SEQ = <-job.ch
+	return outid
+}
+func (ts *TimeoutSchedule) AddCheckJob(d time.Duration, cb func(jc JobContext) bool) int64 {
 	jd := JobID{
 		ID: time.Now().Add(d).UnixNano() / 1e6,
 		// 冲突项
 		SEQ: 0,
 	}
 	outid := int64(ts.Generate())
-	job := &Job{JobID: jd, interval: d, cb: cb, OutID: outid, MaxRetry: 2}
+	job := &Job{JobID: jd,
+		cb:    cb,
+		OutID: outid,
+		data:  map[string]interface{}{},
+	}
 	ts.addCh <- job
 	// JobID maybe modify
 	// chan 是引用传递方式，所以可以这样使用
@@ -117,11 +165,11 @@ func (ts *TimeoutSchedule) process(clock *time.Timer, doWorks chan jobDone) {
 		if job, ok := it.Value().(*Job); ok {
 			if t := job.ID - now; t <= 0 {
 				if job.cb == nil {
-					job.cb = func() bool { return true }
+					job.cb = func(JobContext) bool { return true }
 				}
 				go func() {
 					// 控制并发度，并处理结果, false 的要重新reschedule
-					doWorks <- jobDone{job, job.cb()}
+					doWorks <- jobDone{job, job.cb(job)}
 				}()
 				dropItems = append(dropItems, it.Key())
 			} else {
@@ -154,11 +202,12 @@ func (ts *TimeoutSchedule) Start() {
 			select {
 			case jd := <-doWorks:
 				if !jd.result {
-					jd.Job.Retry += 1
 					//fmt.Println("*************", jd.Job.Retry, jd.Job.MaxRetry, jd.Job.Retry <= jd.Job.MaxRetry)
-					if jd.Job.Retry <= jd.Job.MaxRetry {
-						jd.Job.JobID.ID = time.Now().Add((time.Duration)(int64(jd.Job.interval)*int64(jd.Job.Retry))).UnixNano() / 1e6
-
+					d := jd.Job.nextTime.Sub(time.Now())
+					// retry
+					if d > 0 {
+						jd.Job.JobID.ID = jd.Job.nextTime.UnixNano() / 1e6
+						jd.Job.runCount += 1
 						ts.addCh <- jd.Job
 					} else {
 						ts.removeCh <- struct {
@@ -190,7 +239,7 @@ func (ts *TimeoutSchedule) Start() {
 				}
 			}
 		case job := <-ts.addCh:
-			if job.Retry > 0 {
+			if job.runCount > 0 {
 				// 说明已经被主动删除了
 				if _, found := ts.index[job.OutID]; !found {
 					break
