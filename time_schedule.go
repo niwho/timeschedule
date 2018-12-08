@@ -42,10 +42,20 @@ type JobContext interface {
 	GetJobID()int64
 }
 
+type JobStatue int
+
+const (
+	_ JobStatue = iota
+	WAITING
+	RUNING
+	DONE
+)
+
 type Job struct {
 	JobID
 
 	OutID int64
+	Status JobStatue
 
 	//ch chan int64
 	runCount int
@@ -96,6 +106,10 @@ type TimeoutSchedule struct {
 	debug struct {
 		d time.Duration
 	}
+
+	// Job 状态变化跟踪
+	updateCh    chan *Job
+	UpdataCb func(*Job) // 注意这个回调函数长时间阻塞可能会导致整个job调度停滞
 }
 
 func InitTimeoutSchedule() {
@@ -103,14 +117,26 @@ func InitTimeoutSchedule() {
 	TimeoutScheduleIns = &TimeoutSchedule{
 		SkipList: skiplist.New(),
 		Node:     idf,
-		addCh:    make(chan *Job, 32),
+		addCh:    make(chan *Job, 128),
+		updateCh:    make(chan *Job, 128),
 		removeCh: make(chan struct {
 			oid    int64
 			ignore bool
-		}, 32),
+		}, 128),
 		index: map[int64]*Job{},
 	}
 	go TimeoutScheduleIns.Start()
+}
+
+func (ts *TimeoutSchedule) updateJob(){
+	for {
+		select {
+			case jd:=<-ts.updateCh:
+				if ts.UpdataCb!=nil{
+					ts.UpdataCb(jd)
+				}
+		}
+	}
 }
 
 func (ts *TimeoutSchedule) AddCheckJobWithTime(t time.Time, cb func(jc JobContext) bool) int64 {
@@ -125,12 +151,22 @@ func (ts *TimeoutSchedule) AddCheckJobWithTime(t time.Time, cb func(jc JobContex
 		OutID: outid,
 		data:  map[string]interface{}{},
 	}
+	// todo: with timeout
+	ts.updateJobStatus(job, WAITING)
+
 	ts.addCh <- job
 	// JobID maybe modify
 	// chan 是引用传递方式，所以可以这样使用
 	//jd.SEQ = <-job.ch
 	return outid
 }
+
+
+func (ts *TimeoutSchedule) updateJobStatus(job *Job, status JobStatue) {
+	job.Status = status
+	ts.updateCh<-job
+}
+
 func (ts *TimeoutSchedule) AddCheckJob(d time.Duration, cb func(jc JobContext) bool) int64 {
 	jd := JobID{
 		ID: time.Now().Add(d).UnixNano() / 1e6,
@@ -143,6 +179,7 @@ func (ts *TimeoutSchedule) AddCheckJob(d time.Duration, cb func(jc JobContext) b
 		OutID: outid,
 		data:  map[string]interface{}{},
 	}
+	ts.updateJobStatus(job, WAITING)
 	ts.addCh <- job
 	// JobID maybe modify
 	// chan 是引用传递方式，所以可以这样使用
@@ -174,6 +211,7 @@ func (ts *TimeoutSchedule) process(clock *time.Timer, doWorks chan jobDone) {
 				}
 				go func() {
 					// 控制并发度，并处理结果, false 的要重新reschedule
+					ts.updateJobStatus(job, RUNING)
 					doWorks <- jobDone{job, job.cb(job)}
 				}()
 				dropItems = append(dropItems, it.Key())
@@ -202,6 +240,7 @@ func (ts *TimeoutSchedule) process(clock *time.Timer, doWorks chan jobDone) {
 func (ts *TimeoutSchedule) Start() {
 	clock := time.NewTimer(365 * 24 * time.Hour)
 	doWorks := make(chan jobDone, 1024)
+	go ts.updateJob()
 	go func() {
 		for {
 			select {
@@ -213,6 +252,9 @@ func (ts *TimeoutSchedule) Start() {
 					if d > 0 {
 						jd.Job.JobID.ID = jd.Job.nextTime.UnixNano() / 1e6
 						jd.Job.runCount += 1
+
+						ts.updateJobStatus(jd.Job, WAITING)
+
 						ts.addCh <- jd.Job
 					} else {
 						ts.removeCh <- struct {
@@ -223,6 +265,7 @@ func (ts *TimeoutSchedule) Start() {
 
 				} else {
 					//fmt.Println(time.Now(), jd.Job.OutID)
+					ts.updateJobStatus(jd.Job, DONE)
 					ts.removeCh <- struct {
 						oid    int64
 						ignore bool
