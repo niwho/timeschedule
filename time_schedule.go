@@ -39,7 +39,8 @@ type JobContext interface {
 	GetRunCount() int
 	SetValue(string, interface{})
 	GetValue(string) (interface{}, bool)
-	GetJobID()int64
+	GetJobID() int64
+	GetJobDescription() string
 }
 
 type JobStatue int
@@ -54,8 +55,9 @@ const (
 type Job struct {
 	JobID
 
-	OutID int64
-	Status JobStatue
+	OutID       int64
+	Status      JobStatue
+	Description string
 
 	//ch chan int64
 	runCount int
@@ -63,6 +65,10 @@ type Job struct {
 	cb       func(JobContext) bool
 
 	data map[string]interface{}
+}
+
+func (j *Job) GetJobDescription() string {
+	return j.Description
 }
 
 func (j *Job) GetJobID() int64 {
@@ -75,6 +81,11 @@ func (j *Job) SetNextRunTime(t time.Time) {
 
 func (j *Job) GetRunCount() int {
 	return j.runCount
+
+}
+
+func (j *Job) GetNextTime() time.Time {
+	return j.nextTime
 
 }
 
@@ -108,7 +119,7 @@ type TimeoutSchedule struct {
 	}
 
 	// Job 状态变化跟踪
-	updateCh    chan *Job
+	updateCh chan *Job
 	UpdataCb func(*Job) // 注意这个回调函数长时间阻塞可能会导致整个job调度停滞
 }
 
@@ -118,7 +129,7 @@ func InitTimeoutSchedule() {
 		SkipList: skiplist.New(),
 		Node:     idf,
 		addCh:    make(chan *Job, 128),
-		updateCh:    make(chan *Job, 128),
+		updateCh: make(chan *Job, 128),
 		removeCh: make(chan struct {
 			oid    int64
 			ignore bool
@@ -128,18 +139,18 @@ func InitTimeoutSchedule() {
 	go TimeoutScheduleIns.Start()
 }
 
-func (ts *TimeoutSchedule) updateJob(){
+func (ts *TimeoutSchedule) updateJob() {
 	for {
 		select {
-			case jd:=<-ts.updateCh:
-				if ts.UpdataCb!=nil{
-					ts.UpdataCb(jd)
-				}
+		case jd := <-ts.updateCh:
+			if ts.UpdataCb != nil {
+				ts.UpdataCb(jd)
+			}
 		}
 	}
 }
 
-func (ts *TimeoutSchedule) AddCheckJobWithTime(t time.Time, cb func(jc JobContext) bool) int64 {
+func (ts *TimeoutSchedule) AddCheckJobWithTimeV2(t time.Time, cb func(jc JobContext) bool, desc string) int64 {
 	jd := JobID{
 		ID: t.UnixNano() / 1e6,
 		// 冲突项
@@ -147,9 +158,10 @@ func (ts *TimeoutSchedule) AddCheckJobWithTime(t time.Time, cb func(jc JobContex
 	}
 	outid := int64(ts.Generate())
 	job := &Job{JobID: jd,
-		cb:    cb,
-		OutID: outid,
-		data:  map[string]interface{}{},
+		cb:          cb,
+		OutID:       outid,
+		Description: desc,
+		data:        map[string]interface{}{},
 	}
 	// todo: with timeout
 	ts.updateJobStatus(job, WAITING)
@@ -161,10 +173,13 @@ func (ts *TimeoutSchedule) AddCheckJobWithTime(t time.Time, cb func(jc JobContex
 	return outid
 }
 
+func (ts *TimeoutSchedule) AddCheckJobWithTime(t time.Time, cb func(jc JobContext) bool) int64 {
+	return ts.AddCheckJobWithTimeV2(t, cb, "")
+}
 
 func (ts *TimeoutSchedule) updateJobStatus(job *Job, status JobStatue) {
 	job.Status = status
-	ts.updateCh<-job
+	ts.updateCh <- job
 }
 
 func (ts *TimeoutSchedule) AddCheckJob(d time.Duration, cb func(jc JobContext) bool) int64 {
