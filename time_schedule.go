@@ -39,6 +39,7 @@ type JobContext interface {
 	GetRunCount() int
 	SetValue(string, interface{})
 	GetValue(string) (interface{}, bool)
+	GetJobID()int64
 }
 
 type Job struct {
@@ -52,6 +53,10 @@ type Job struct {
 	cb       func(JobContext) bool
 
 	data map[string]interface{}
+}
+
+func (j *Job) GetJobID() int64 {
+	return j.OutID
 }
 
 func (j *Job) SetNextRunTime(t time.Time) {
