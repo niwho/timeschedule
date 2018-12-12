@@ -272,6 +272,7 @@ func (ts *TimeoutSchedule) Start() {
 
 						ts.addCh <- jd.Job
 					} else {
+						ts.updateJobStatus(jd.Job, DONE)
 						ts.removeCh <- struct {
 							oid    int64
 							ignore bool
