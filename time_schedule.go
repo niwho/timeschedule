@@ -177,6 +177,29 @@ func (ts *TimeoutSchedule) AddCheckJobWithTime(t time.Time, cb func(jc JobContex
 	return ts.AddCheckJobWithTimeV2(t, cb, "")
 }
 
+func (ts *TimeoutSchedule) AddCheckJobWithData(t time.Time, cb func(jc JobContext) bool, desc string, data map[string]interface{}) int64 {
+	jd := JobID{
+		ID: t.UnixNano() / 1e6,
+		// 冲突项
+		SEQ: 0,
+	}
+	outid := int64(ts.Generate())
+	job := &Job{JobID: jd,
+		cb:          cb,
+		OutID:       outid,
+		Description: desc,
+		data:        data,
+	}
+	// todo: with timeout
+	ts.updateJobStatus(job, WAITING)
+
+	ts.addCh <- job
+	// JobID maybe modify
+	// chan 是引用传递方式，所以可以这样使用
+	//jd.SEQ = <-job.ch
+	return outid
+}
+
 func (ts *TimeoutSchedule) updateJobStatus(job *Job, status JobStatue) {
 	job.Status = status
 	ts.updateCh <- job
