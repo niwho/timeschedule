@@ -50,6 +50,7 @@ const (
 	WAITING
 	RUNING
 	DONE
+	CANCEL
 )
 
 type Job struct {
