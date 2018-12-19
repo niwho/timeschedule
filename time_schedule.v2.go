@@ -83,8 +83,11 @@ func (ts *TimeoutScheduleV2) AddCheckJob(jc JobContextV2, cb func(jc JobContextV
 		SEQ: 0,
 	}
 	jc.SetStartTime(jc.GetNextRunTime())
-	outid := int64(ts.Generate())
-	jc.SetJobID(outid)
+	outId := jc.GetJobID()
+	if jc.GetJobID() == 0 {
+		outid = int64(ts.Generate())
+		jc.SetJobID(outid)
+	}
 	job := &JobV2{
 		JobContextV2: jc,
 		InnerID:      jd,
