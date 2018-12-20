@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/snowflake"
+	"github.com/niwho/logs"
 	"github.com/ryszard/goskiplist/skiplist"
 )
 
@@ -35,18 +36,19 @@ type TimeoutScheduleV2 struct {
 	*skiplist.SkipList
 	*snowflake.Node
 	addCh    chan *JobV2
-	removeCh chan struct {
-		oid    int64
-		ignore bool
-	}
-	index map[int64]*JobV2
-	debug struct {
+	removeCh chan CacelJobID
+	index    map[int64]*JobV2
+	debug    struct {
 		d time.Duration
 	}
 
 	// JobV2 状态变化跟踪
 	updateCh chan JobContextV2
 	UpdataCb func(JobContextV2) // 注意这个回调函数长时间阻塞可能会导致整个job调度停滞
+}
+type CacelJobID struct {
+	oid    int64
+	ignore bool
 }
 
 func InitTimeoutScheduleV2() {
@@ -56,11 +58,8 @@ func InitTimeoutScheduleV2() {
 		Node:     idf,
 		addCh:    make(chan *JobV2, 128),
 		updateCh: make(chan JobContextV2, 128),
-		removeCh: make(chan struct {
-			oid    int64
-			ignore bool
-		}, 128),
-		index: map[int64]*JobV2{},
+		removeCh: make(chan CacelJobID, 128),
+		index:    map[int64]*JobV2{},
 	}
 	go TimeoutScheduleInsV2.Start()
 }
@@ -109,10 +108,13 @@ func (ts *TimeoutScheduleV2) updateJobStatus(job *JobV2, status JobStatue) {
 }
 
 func (ts *TimeoutScheduleV2) RemoveCheckJob(jid int64) {
-	ts.removeCh <- struct {
-		oid    int64
-		ignore bool
-	}{jid, false}
+	logs.Log(logs.F{"jid": jid}).Debug("RemoveCheckJob")
+	ts.removeCh <- CacelJobID{
+		oid:    jid,
+		ignore: false,
+	}
+	//a := <-ts.removeCh
+	logs.Log(logs.F{"jid": jid, "len": len(ts.removeCh)}).Debug("RemoveCheckJob:end")
 }
 
 type jobDoneV2 struct {
@@ -196,10 +198,13 @@ func (ts *TimeoutScheduleV2) Start() {
 		}
 	}()
 	for {
+		logs.Log(logs.F{"test": "test", "ts.removeCh": len(ts.removeCh)}).Info("Start:loop")
 		select {
 		case outID := <-ts.removeCh:
+			logs.Log(logs.F{"all_Jobs": ts.index, "outID": outID}).Debug("removeCh")
 			if job, found := ts.index[outID.oid]; found {
 
+				logs.Log(logs.F{"all_Jobs": ts.index, "outID": outID, "job": job}).Debug("removeCh")
 				if outID.ignore {
 					ts.updateJobStatus(job, DONE)
 				} else {
@@ -210,12 +215,13 @@ func (ts *TimeoutScheduleV2) Start() {
 				delete(ts.index, outID.oid)
 			}
 		case job := <-ts.addCh:
-			if job.GetRunCount() > 0 {
-				// 说明已经被主动删除了
-				if _, found := ts.index[job.GetJobID()]; !found {
-					break
-				}
+			logs.Log(logs.F{}).Debug("addCh")
+			//if job.GetRunCount() > 0 {
+			// 说明已经被主动删除了
+			if _, found := ts.index[job.GetJobID()]; found {
+				break
 			}
+			//}
 			it := ts.Seek(job.InnerID)
 			if it == nil {
 				ts.Set(job.InnerID, job)
@@ -224,15 +230,21 @@ func (ts *TimeoutScheduleV2) Start() {
 				seq := 0
 				for preJob.InnerID.ID == job.InnerID.ID {
 					seq = preJob.InnerID.SEQ
-					it.Next()
-					preJob = it.Value().(*JobV2)
+					ok := it.Next()
+					if ok {
+						preJob = it.Value().(*JobV2)
+					} else {
+						break
+					}
 				}
 				seq += 1
 				job.InnerID.SEQ = seq
 				ts.Set(job.InnerID, job)
 			}
 			ts.index[job.GetJobID()] = job
+			logs.Log(logs.F{}).Debug("addCh:end")
 		case <-clock.C:
+			logs.Log(logs.F{}).Debug("clock")
 			// 如果没有任何job了， reset 1year
 			if ts.Len() <= 0 {
 				//fmt.Println("36555555")
@@ -243,7 +255,9 @@ func (ts *TimeoutScheduleV2) Start() {
 				clock.Reset(365 * 24 * time.Hour)
 			}
 		}
+		logs.Log(logs.F{}).Debug("process:start")
 		ts.process(clock, doWorks)
+		logs.Log(logs.F{}).Debug("process:end")
 		//fmt.Println("monitor", len(ts.index), ts.Len(), ts.debug.d)
 		//for k, v := range ts.index {
 		//	fmt.Println(k, v)

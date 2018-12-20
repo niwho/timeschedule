@@ -327,11 +327,14 @@ func (ts *TimeoutSchedule) Start() {
 				}
 			}
 		case job := <-ts.addCh:
-			if job.runCount > 0 {
-				// 说明已经被主动删除了
-				if _, found := ts.index[job.OutID]; !found {
-					break
-				}
+			//if job.runCount > 0 {
+			//	// 说明已经被主动删除了
+			//	if _, found := ts.index[job.OutID]; !found {
+			//		break
+			//	}
+			//}
+			if _, found := ts.index[job.OutID]; found {
+				break
 			}
 			it := ts.Seek(job.JobID)
 			if it == nil {
@@ -341,8 +344,11 @@ func (ts *TimeoutSchedule) Start() {
 				seq := 0
 				for preJob.ID == job.ID {
 					seq = preJob.SEQ
-					it.Next()
-					preJob = it.Value().(*Job)
+					if ok := it.Next(); ok {
+						preJob = it.Value().(*Job)
+					} else {
+						break
+					}
 				}
 				seq += 1
 				job.SEQ = seq
