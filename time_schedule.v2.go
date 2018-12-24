@@ -218,9 +218,9 @@ func (ts *TimeoutScheduleV2) Start() {
 			logs.Log(logs.F{}).Debug("addCh")
 			//if job.GetRunCount() > 0 {
 			// 说明已经被主动删除了
-			if _, found := ts.index[job.GetJobID()]; found {
-				break
-			}
+			//if _, found := ts.index[job.GetJobID()]; found {
+			//	break
+			//}
 			//}
 			it := ts.Seek(job.InnerID)
 			if it == nil {
