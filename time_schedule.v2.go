@@ -175,7 +175,7 @@ func (ts *TimeoutScheduleV2) Start() {
 					// retry
 					if d > 0 {
 						jd.InnerID.ID = jd.GetNextRunTime()
-						jd.SetRunCount(jd.GetRunCount() + 1)
+						//jd.SetRunCount(jd.GetRunCount() + 1)
 
 						ts.updateJobStatus(jd.JobV2, WAITING)
 
